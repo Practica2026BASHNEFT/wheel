@@ -85,6 +85,12 @@
     padding: 0 20px;
     font-weight: 500;
   }
+  .bonus-hint {
+    color: #FFD200;
+    font-weight: 600;
+    margin-top: 4px;
+    font-size: 14px;
+  }
 </style>
 </head>
 <body>
@@ -93,7 +99,6 @@
   <div class="wheel-container">
     <div class="pointer"></div>
     <svg class="wheel" id="wheel" viewBox="0 0 400 400">
-      <!-- 8 секторов: чередуем жёлтый/чёрный/белый -->
       <g id="sectors"></g>
       <circle cx="200" cy="200" r="50" fill="#1A1A1A" stroke="#FFD200" stroke-width="3"/>
       <text x="200" y="195" text-anchor="middle" fill="#FFD200" font-size="13" font-weight="600">Роснефть</text>
@@ -107,28 +112,24 @@
   const tg = window.Telegram ? window.Telegram.WebApp : null;
   if (tg) { tg.ready(); tg.expand(); }
 
-  // Призы и веса — должны совпадать с PRIZES в bot.py
   const PRIZES = [
     { name: "Стикерпак", color: "#FFD200", textColor: "#1A1A1A", weight: 35 },
     { name: "Обложка", color: "#1A1A1A", textColor: "#FFD200", weight: 30 },
     { name: "Стикерпак", color: "#FFFFFF", textColor: "#1A1A1A", weight: 0 },
     { name: "Фигурка вышки", color: "#FFD200", textColor: "#1A1A1A", weight: 20 },
     { name: "Обложка", color: "#1A1A1A", textColor: "#FFD200", weight: 0 },
-    { name: "Ещё раз", color: "#FFFFFF", textColor: "#1A1A1A", weight: 14 },
+    { name: "Пусто", color: "#FFFFFF", textColor: "#1A1A1A", weight: 14, displayLabel: "Пусто" },
     { name: "Стикерпак", color: "#FFD200", textColor: "#1A1A1A", weight: 0 },
     { name: "Павербанк", color: "#1A1A1A", textColor: "#FFD200", weight: 1 }
   ];
 
-  // Полные названия призов для отправки в бот
   const FULL_NAMES = {
     "Стикерпак": "Стикерпак с нефтяной тематикой",
     "Обложка": "Обложка на студенческий",
     "Фигурка вышки": "Фигурка нефтяной вышки",
-    "Павербанк": "Павербанк",
-    "Ещё раз": "Попробуй ещё раз!"
+    "Павербанк": "Павербанк"
   };
 
-  // Рисуем секторы
   function createSectors() {
     const cx = 200, cy = 200, r = 195;
     const sectorCount = 8;
@@ -149,7 +150,6 @@
       sectorEl.setAttribute('stroke-width', '2');
       sectors.appendChild(sectorEl);
 
-      // Текст
       const textAngle = i * anglePerSector;
       const textPos = polarToCartesian(cx, cy, 130, textAngle - 90);
       const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -161,7 +161,7 @@
       textEl.setAttribute('font-size', '13');
       textEl.setAttribute('font-weight', '600');
       textEl.setAttribute('transform', `rotate(${textAngle} ${textPos.x} ${textPos.y})`);
-      textEl.textContent = PRIZES[i].name;
+      textEl.textContent = PRIZES[i].displayLabel || PRIZES[i].name;
       sectors.appendChild(textEl);
     }
   }
@@ -175,9 +175,10 @@
 
   let currentRotation = 0;
   let isSpinning = false;
+  let finished = false;
 
   function spin() {
-    if (isSpinning) return;
+    if (isSpinning || finished) return;
     isSpinning = true;
 
     const btn = document.getElementById('spinBtn');
@@ -185,7 +186,6 @@
     btn.disabled = true;
     result.textContent = '';
 
-    // Выбираем приз по весам
     const totalWeight = PRIZES.reduce((sum, p) => sum + p.weight, 0);
     let random = Math.random() * totalWeight;
     let winnerIdx = 0;
@@ -197,7 +197,6 @@
       random -= PRIZES[i].weight;
     }
 
-    // Угол поворота: 5-7 полных оборотов + угол сектора-победителя
     const anglePerSector = 360 / PRIZES.length;
     const targetAngle = -(winnerIdx * anglePerSector);
     const extraSpins = 5 + Math.floor(Math.random() * 3);
@@ -208,18 +207,26 @@
 
     setTimeout(() => {
       const prize = PRIZES[winnerIdx].name;
-      const fullName = FULL_NAMES[prize];
+      isSpinning = false;
 
-      if (prize === "Ещё раз") {
-        result.textContent = "Пустой сектор! Подходи к стенду.";
+      if (prize === "Пусто") {
+        // Пустой сектор — даём крутить ещё
+        result.innerHTML = 'Пусто! <div class="bonus-hint">Попробуй ещё раз</div>';
+        btn.disabled = false;
+        btn.textContent = "Крутить ещё раз";
       } else {
+        // Выпал приз — финал
+        const fullName = FULL_NAMES[prize];
         result.textContent = `Поздравляем! Твой приз: ${fullName}`;
-      }
+        finished = true;
+        btn.disabled = true;
+        btn.textContent = "Готово";
+        btn.style.opacity = "0.4";
 
-      // Отправляем результат в бот
-      if (tg) {
-        tg.sendData(JSON.stringify({ prize: fullName }));
-        setTimeout(() => tg.close(), 2500);
+        if (tg) {
+          tg.sendData(JSON.stringify({ prize: fullName }));
+          setTimeout(() => tg.close(), 2500);
+        }
       }
     }, 5100);
   }
