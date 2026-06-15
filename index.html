@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Колесо призов</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1A1A1A;
+    color: #FFD200;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 16px;
+    overflow: hidden;
+  }
+  h1 {
+    color: #FFD200;
+    font-size: 20px;
+    margin-bottom: 8px;
+    text-align: center;
+    font-weight: 500;
+  }
+  .subtitle {
+    color: #FFFFFF;
+    font-size: 13px;
+    opacity: 0.7;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .wheel-container {
+    position: relative;
+    width: 320px;
+    height: 320px;
+    max-width: 90vw;
+    max-height: 90vw;
+  }
+  .pointer {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 18px solid transparent;
+    border-right: 18px solid transparent;
+    border-top: 28px solid #FFD200;
+    z-index: 10;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+  }
+  svg.wheel {
+    width: 100%;
+    height: 100%;
+    transition: transform 5s cubic-bezier(0.17, 0.67, 0.16, 1);
+  }
+  button {
+    background: #FFD200;
+    color: #1A1A1A;
+    border: 2px solid #1A1A1A;
+    padding: 14px 48px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 32px;
+    cursor: pointer;
+    margin-top: 24px;
+    min-width: 220px;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  #result {
+    margin-top: 16px;
+    color: #FFFFFF;
+    font-size: 15px;
+    text-align: center;
+    min-height: 50px;
+    padding: 0 20px;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+  <h1>Роснефть · Башнефть-Добыча</h1>
+  <div class="subtitle">Колесо призов</div>
+  <div class="wheel-container">
+    <div class="pointer"></div>
+    <svg class="wheel" id="wheel" viewBox="0 0 400 400">
+      <!-- 8 секторов: чередуем жёлтый/чёрный/белый -->
+      <g id="sectors"></g>
+      <circle cx="200" cy="200" r="50" fill="#1A1A1A" stroke="#FFD200" stroke-width="3"/>
+      <text x="200" y="195" text-anchor="middle" fill="#FFD200" font-size="13" font-weight="600">Роснефть</text>
+      <text x="200" y="212" text-anchor="middle" fill="#FFFFFF" font-size="9">Башнефть-Добыча</text>
+    </svg>
+  </div>
+  <button id="spinBtn" onclick="spin()">Крутить колесо</button>
+  <div id="result"></div>
+
+<script>
+  const tg = window.Telegram ? window.Telegram.WebApp : null;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  // Призы и веса — должны совпадать с PRIZES в bot.py
+  const PRIZES = [
+    { name: "Стикерпак", color: "#FFD200", textColor: "#1A1A1A", weight: 35 },
+    { name: "Обложка", color: "#1A1A1A", textColor: "#FFD200", weight: 30 },
+    { name: "Стикерпак", color: "#FFFFFF", textColor: "#1A1A1A", weight: 0 },
+    { name: "Фигурка вышки", color: "#FFD200", textColor: "#1A1A1A", weight: 20 },
+    { name: "Обложка", color: "#1A1A1A", textColor: "#FFD200", weight: 0 },
+    { name: "Ещё раз", color: "#FFFFFF", textColor: "#1A1A1A", weight: 14 },
+    { name: "Стикерпак", color: "#FFD200", textColor: "#1A1A1A", weight: 0 },
+    { name: "Павербанк", color: "#1A1A1A", textColor: "#FFD200", weight: 1 }
+  ];
+
+  // Полные названия призов для отправки в бот
+  const FULL_NAMES = {
+    "Стикерпак": "Стикерпак с нефтяной тематикой",
+    "Обложка": "Обложка на студенческий",
+    "Фигурка вышки": "Фигурка нефтяной вышки",
+    "Павербанк": "Павербанк",
+    "Ещё раз": "Попробуй ещё раз!"
+  };
+
+  // Рисуем секторы
+  function createSectors() {
+    const cx = 200, cy = 200, r = 195;
+    const sectorCount = 8;
+    const anglePerSector = 360 / sectorCount;
+    const sectors = document.getElementById('sectors');
+
+    for (let i = 0; i < sectorCount; i++) {
+      const startAngle = i * anglePerSector - 90 - anglePerSector / 2;
+      const endAngle = startAngle + anglePerSector;
+      const start = polarToCartesian(cx, cy, r, startAngle);
+      const end = polarToCartesian(cx, cy, r, endAngle);
+      const path = `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 0 1 ${end.x} ${end.y} Z`;
+
+      const sectorEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      sectorEl.setAttribute('d', path);
+      sectorEl.setAttribute('fill', PRIZES[i].color);
+      sectorEl.setAttribute('stroke', '#1A1A1A');
+      sectorEl.setAttribute('stroke-width', '2');
+      sectors.appendChild(sectorEl);
+
+      // Текст
+      const textAngle = i * anglePerSector;
+      const textPos = polarToCartesian(cx, cy, 130, textAngle - 90);
+      const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      textEl.setAttribute('x', textPos.x);
+      textEl.setAttribute('y', textPos.y);
+      textEl.setAttribute('text-anchor', 'middle');
+      textEl.setAttribute('dominant-baseline', 'middle');
+      textEl.setAttribute('fill', PRIZES[i].textColor);
+      textEl.setAttribute('font-size', '13');
+      textEl.setAttribute('font-weight', '600');
+      textEl.setAttribute('transform', `rotate(${textAngle} ${textPos.x} ${textPos.y})`);
+      textEl.textContent = PRIZES[i].name;
+      sectors.appendChild(textEl);
+    }
+  }
+
+  function polarToCartesian(cx, cy, r, angleDeg) {
+    const angleRad = (angleDeg) * Math.PI / 180;
+    return { x: cx + r * Math.cos(angleRad), y: cy + r * Math.sin(angleRad) };
+  }
+
+  createSectors();
+
+  let currentRotation = 0;
+  let isSpinning = false;
+
+  function spin() {
+    if (isSpinning) return;
+    isSpinning = true;
+
+    const btn = document.getElementById('spinBtn');
+    const result = document.getElementById('result');
+    btn.disabled = true;
+    result.textContent = '';
+
+    // Выбираем приз по весам
+    const totalWeight = PRIZES.reduce((sum, p) => sum + p.weight, 0);
+    let random = Math.random() * totalWeight;
+    let winnerIdx = 0;
+    for (let i = 0; i < PRIZES.length; i++) {
+      if (random < PRIZES[i].weight) {
+        winnerIdx = i;
+        break;
+      }
+      random -= PRIZES[i].weight;
+    }
+
+    // Угол поворота: 5-7 полных оборотов + угол сектора-победителя
+    const anglePerSector = 360 / PRIZES.length;
+    const targetAngle = -(winnerIdx * anglePerSector);
+    const extraSpins = 5 + Math.floor(Math.random() * 3);
+    const finalRotation = currentRotation + extraSpins * 360 + targetAngle - (currentRotation % 360);
+
+    currentRotation = finalRotation;
+    document.getElementById('wheel').style.transform = `rotate(${finalRotation}deg)`;
+
+    setTimeout(() => {
+      const prize = PRIZES[winnerIdx].name;
+      const fullName = FULL_NAMES[prize];
+
+      if (prize === "Ещё раз") {
+        result.textContent = "Пустой сектор! Подходи к стенду.";
+      } else {
+        result.textContent = `Поздравляем! Твой приз: ${fullName}`;
+      }
+
+      // Отправляем результат в бот
+      if (tg) {
+        tg.sendData(JSON.stringify({ prize: fullName }));
+        setTimeout(() => tg.close(), 2500);
+      }
+    }, 5100);
+  }
+</script>
+</body>
+</html>
